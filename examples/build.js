@@ -54,10 +54,10 @@ AFRAME.registerComponent('super-hands', {
     colliderEndEvent: { default: 'hitend' },
     colliderEndEventProperty: { default: 'el' },
     grabStartButtons: {
-      default: ['gripdown', 'trackpaddown', 'triggerdown', 'gripclose', 'abuttondown', 'bbuttondown', 'xbuttondown', 'ybuttondown', 'pointup', 'thumbup', 'pointingstart', 'pistolstart', 'thumbstickdown', 'mousedown', 'touchstart']
+      default: ['gripdown', 'trackpaddown', 'triggerdown', 'gripclose', 'abuttondown', 'bbuttondown', 'xbuttondown', 'ybuttondown', 'pointup', 'thumbup', 'pointingstart', 'pistolstart', 'thumbstickdown', 'mousedown']
     },
     grabEndButtons: {
-      default: ['gripup', 'trackpadup', 'triggerup', 'gripopen', 'abuttonup', 'bbuttonup', 'xbuttonup', 'ybuttonup', 'pointdown', 'thumbdown', 'pointingend', 'pistolend', 'thumbstickup', 'mouseup', 'touchend']
+      default: ['gripup', 'trackpadup', 'triggerup', 'gripopen', 'abuttonup', 'bbuttonup', 'xbuttonup', 'ybuttonup', 'pointdown', 'thumbdown', 'pointingend', 'pistolend', 'thumbstickup', 'mouseup']
     },
     stretchStartButtons: {
       default: ['gripdown', 'trackpaddown', 'triggerdown', 'gripclose', 'abuttondown', 'bbuttondown', 'xbuttondown', 'ybuttondown', 'pointup', 'thumbup', 'pointingstart', 'pistolstart', 'thumbstickdown', 'mousedown', 'touchstart']
@@ -147,11 +147,13 @@ AFRAME.registerComponent('super-hands', {
     this.onDragDropEndButton();
   },
   tick: function () {
+    let orderChanged = false;
     // closer objects and objects with no distance come later in list
     function sorter(a, b) {
       const aDist = a.distance == null ? -1 : a.distance;
       const bDist = b.distance == null ? -1 : b.distance;
       if (aDist < bDist) {
+        orderChanged = true;
         return 1;
       }
       if (bDist < aDist) {
@@ -167,15 +169,12 @@ AFRAME.registerComponent('super-hands', {
       }
       this.prevCheckTime = time;
 
-      let orderChanged = false;
+      orderChanged = false;
       this.hoverElsIntersections.sort(sorter);
-      for (let i = 0; i < this.hoverElsIntersections.length; i++) {
-        if (this.hoverEls[i] !== this.hoverElsIntersections[i].object.el) {
-          orderChanged = true;
+      if (orderChanged) {
+        for (let i = 0; i < this.hoverElsIntersections.length; i++) {
           this.hoverEls[i] = this.hoverElsIntersections[i].object.el;
         }
-      }
-      if (orderChanged) {
         this.hover();
       }
     };
@@ -537,7 +536,7 @@ AFRAME.registerComponent('super-hands', {
       this.hoverEls.splice(hoverIndex, 1);
       const sect = this.hoverElsIntersections.splice(hoverIndex, 1);
       this.hoverEls.push(el);
-      this.hoverElsIntersections.push(sect[0]);
+      this.hoverElsIntersections.push(sect);
     }
   }
 });
@@ -81274,7 +81273,86 @@ module.exports = getWakeLock();
 
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {},require("timers").setImmediate)
-},{"timers":14}],13:[function(require,module,exports){
+},{"timers":13}],13:[function(require,module,exports){
+(function (setImmediate,clearImmediate){
+var nextTick = require('process/browser.js').nextTick;
+var apply = Function.prototype.apply;
+var slice = Array.prototype.slice;
+var immediateIds = {};
+var nextImmediateId = 0;
+
+// DOM APIs, for completeness
+
+exports.setTimeout = function() {
+  return new Timeout(apply.call(setTimeout, window, arguments), clearTimeout);
+};
+exports.setInterval = function() {
+  return new Timeout(apply.call(setInterval, window, arguments), clearInterval);
+};
+exports.clearTimeout =
+exports.clearInterval = function(timeout) { timeout.close(); };
+
+function Timeout(id, clearFn) {
+  this._id = id;
+  this._clearFn = clearFn;
+}
+Timeout.prototype.unref = Timeout.prototype.ref = function() {};
+Timeout.prototype.close = function() {
+  this._clearFn.call(window, this._id);
+};
+
+// Does not start the time, just sets up the members needed.
+exports.enroll = function(item, msecs) {
+  clearTimeout(item._idleTimeoutId);
+  item._idleTimeout = msecs;
+};
+
+exports.unenroll = function(item) {
+  clearTimeout(item._idleTimeoutId);
+  item._idleTimeout = -1;
+};
+
+exports._unrefActive = exports.active = function(item) {
+  clearTimeout(item._idleTimeoutId);
+
+  var msecs = item._idleTimeout;
+  if (msecs >= 0) {
+    item._idleTimeoutId = setTimeout(function onTimeout() {
+      if (item._onTimeout)
+        item._onTimeout();
+    }, msecs);
+  }
+};
+
+// That's not how node.js implements it but the exposed api is the same.
+exports.setImmediate = typeof setImmediate === "function" ? setImmediate : function(fn) {
+  var id = nextImmediateId++;
+  var args = arguments.length < 2 ? false : slice.call(arguments, 1);
+
+  immediateIds[id] = true;
+
+  nextTick(function onNextTick() {
+    if (immediateIds[id]) {
+      // fn.call() is faster so we optimize for the common use-case
+      // @see http://jsperf.com/call-apply-segu
+      if (args) {
+        fn.apply(null, args);
+      } else {
+        fn.call(null);
+      }
+      // Prevent ids from leaking
+      exports.clearImmediate(id);
+    }
+  });
+
+  return id;
+};
+
+exports.clearImmediate = typeof clearImmediate === "function" ? clearImmediate : function(id) {
+  delete immediateIds[id];
+};
+}).call(this,require("timers").setImmediate,require("timers").clearImmediate)
+},{"process/browser.js":14,"timers":13}],14:[function(require,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -81460,86 +81538,7 @@ process.chdir = function (dir) {
 };
 process.umask = function() { return 0; };
 
-},{}],14:[function(require,module,exports){
-(function (setImmediate,clearImmediate){
-var nextTick = require('process/browser.js').nextTick;
-var apply = Function.prototype.apply;
-var slice = Array.prototype.slice;
-var immediateIds = {};
-var nextImmediateId = 0;
-
-// DOM APIs, for completeness
-
-exports.setTimeout = function() {
-  return new Timeout(apply.call(setTimeout, window, arguments), clearTimeout);
-};
-exports.setInterval = function() {
-  return new Timeout(apply.call(setInterval, window, arguments), clearInterval);
-};
-exports.clearTimeout =
-exports.clearInterval = function(timeout) { timeout.close(); };
-
-function Timeout(id, clearFn) {
-  this._id = id;
-  this._clearFn = clearFn;
-}
-Timeout.prototype.unref = Timeout.prototype.ref = function() {};
-Timeout.prototype.close = function() {
-  this._clearFn.call(window, this._id);
-};
-
-// Does not start the time, just sets up the members needed.
-exports.enroll = function(item, msecs) {
-  clearTimeout(item._idleTimeoutId);
-  item._idleTimeout = msecs;
-};
-
-exports.unenroll = function(item) {
-  clearTimeout(item._idleTimeoutId);
-  item._idleTimeout = -1;
-};
-
-exports._unrefActive = exports.active = function(item) {
-  clearTimeout(item._idleTimeoutId);
-
-  var msecs = item._idleTimeout;
-  if (msecs >= 0) {
-    item._idleTimeoutId = setTimeout(function onTimeout() {
-      if (item._onTimeout)
-        item._onTimeout();
-    }, msecs);
-  }
-};
-
-// That's not how node.js implements it but the exposed api is the same.
-exports.setImmediate = typeof setImmediate === "function" ? setImmediate : function(fn) {
-  var id = nextImmediateId++;
-  var args = arguments.length < 2 ? false : slice.call(arguments, 1);
-
-  immediateIds[id] = true;
-
-  nextTick(function onNextTick() {
-    if (immediateIds[id]) {
-      // fn.call() is faster so we optimize for the common use-case
-      // @see http://jsperf.com/call-apply-segu
-      if (args) {
-        fn.apply(null, args);
-      } else {
-        fn.call(null);
-      }
-      // Prevent ids from leaking
-      exports.clearImmediate(id);
-    }
-  });
-
-  return id;
-};
-
-exports.clearImmediate = typeof clearImmediate === "function" ? clearImmediate : function(id) {
-  delete immediateIds[id];
-};
-}).call(this,require("timers").setImmediate,require("timers").clearImmediate)
-},{"process/browser.js":13,"timers":14}],15:[function(require,module,exports){
+},{}],15:[function(require,module,exports){
 'use strict';
 
 /* global AFRAME */
@@ -81830,7 +81829,6 @@ AFRAME.registerComponent('droppable', {
 },{}],19:[function(require,module,exports){
 'use strict';
 
-/* global AFRAME, THREE */
 const inherit = AFRAME.utils.extendDeep;
 const physicsCore = require('./prototypes/physics-grab-proto.js');
 const buttonsCore = require('./prototypes/buttons-proto.js');
@@ -81859,9 +81857,24 @@ AFRAME.registerComponent('grabbable', inherit(base, {
     this.targetPosition = new THREE.Vector3();
     this.physicsInit();
 
+    this.extraDistance = 0;
+    this.touchX = 0;
+    this.touchY = 0;
+
     this.el.addEventListener(this.GRAB_EVENT, e => this.start(e));
     this.el.addEventListener(this.UNGRAB_EVENT, e => this.end(e));
     this.el.addEventListener('mouseout', e => this.lostGrabber(e));
+
+    // 3.0.1 Mod
+    this.extraDistance = 0;
+    this.touchX = 0;
+    this.touchY = 0;
+
+    // 3.0.1 Mod
+    this.myControls = document.querySelector("#rhand");
+    this.scene = document.querySelector("#scene");
+    this.myControls.addEventListener('axismove', e => this.axisMove(e));
+    this.scene.addEventListener('globalGrabEnd', e => this.wakeUp(e));
   },
   update: function () {
     this.physicsUpdate();
@@ -81870,36 +81883,44 @@ AFRAME.registerComponent('grabbable', inherit(base, {
     this.yFactor = (this.data.invert ? -1 : 1) * !this.data.suppressY;
   },
   tick: function () {
-    var q = new THREE.Quaternion();
-    var v = new THREE.Vector3();
+    var entityPosition;
+    if (this.grabber) {
 
-    return function () {
-      var entityPosition;
-      if (this.grabber) {
-        // reflect on z-axis to point in same direction as the laser
-        this.targetPosition.copy(this.grabDirection);
-        this.targetPosition.applyQuaternion(this.grabber.object3D.getWorldQuaternion(q)).setLength(this.grabDistance).add(this.grabber.object3D.getWorldPosition(v)).add(this.grabOffset);
-        if (this.deltaPositionIsValid) {
-          // relative position changes work better with nested entities
-          this.deltaPosition.sub(this.targetPosition);
-          entityPosition = this.el.getAttribute('position');
-          this.destPosition.x = entityPosition.x - this.deltaPosition.x * this.xFactor;
-          this.destPosition.y = entityPosition.y - this.deltaPosition.y * this.yFactor;
-          this.destPosition.z = entityPosition.z - this.deltaPosition.z * this.zFactor;
-          this.el.setAttribute('position', this.destPosition);
-        } else {
-          this.deltaPositionIsValid = true;
-        }
-        this.deltaPosition.copy(this.targetPosition);
+      // 3.0.1 Mod
+      if (this.touchY !== 0) {
+        this.extraDistance -= this.touchY;
       }
-    };
-  }(),
+
+      // 3.0.1 Mod
+      if (this.touchX !== 0) {
+        this.el.object3D.rotation.y -= this.touchX;
+      }
+
+      // reflect on z-axis to point in same direction as the laser
+      this.targetPosition.copy(this.grabDirection);
+      this.targetPosition.applyQuaternion(this.grabber.object3D.getWorldQuaternion()).setLength(this.grabDistance + this.extraDistance) // 3.0.1 Mod
+      .add(this.grabber.object3D.getWorldPosition()).add(this.grabOffset);
+      if (this.deltaPositionIsValid) {
+        // relative position changes work better with nested entities
+        this.deltaPosition.sub(this.targetPosition);
+        entityPosition = this.el.getAttribute('position');
+        this.destPosition.x = entityPosition.x - this.deltaPosition.x * this.xFactor;
+        this.destPosition.y = entityPosition.y - this.deltaPosition.y * this.yFactor;
+        this.destPosition.z = entityPosition.z - this.deltaPosition.z * this.zFactor;
+        this.el.setAttribute('position', this.destPosition);
+      } else {
+        this.deltaPositionIsValid = true;
+      }
+      this.deltaPosition.copy(this.targetPosition);
+    }
+  },
   remove: function () {
     this.el.removeEventListener(this.GRAB_EVENT, this.start);
     this.el.removeEventListener(this.UNGRAB_EVENT, this.end);
     this.physicsRemove();
   },
   start: function (evt) {
+    this.el.removeAttribute('dynamic-body');
     if (evt.defaultPrevented || !this.startButtonOk(evt)) {
       return;
     }
@@ -81926,6 +81947,9 @@ AFRAME.registerComponent('grabbable', inherit(base, {
     }
   },
   end: function (evt) {
+    this.el.setAttribute('dynamic-body'); // 3.0.1 Mod
+    this.extraDistance = 0; // 3.0.1 Mod
+    this.scene.emit('globalGrabEnd', {}, false);
     const handIndex = this.grabbers.indexOf(evt.detail.hand);
     if (evt.defaultPrevented || !this.endButtonOk(evt)) {
       return;
@@ -81943,24 +81967,41 @@ AFRAME.registerComponent('grabbable', inherit(base, {
       evt.preventDefault();
     }
   },
+  axisMove: function (evt) {
+    // 3.0.1 Mod
+    const x = evt.detail.axis[0];
+    const y = evt.detail.axis[1];
+    this.touchX = (Math.abs(x) > 0.7 ? x : 0) * 0.05;
+    this.touchY = y * 0.05;
+  },
+  wakeUp: function (evt) {
+    /*
+      To Do: Figure out how to wake up entities for a second. This will fix the issue
+      of pulling entities below other entities.   
+      https://github.com/wmurphyrd/aframe-physics-extras#sleepy 
+    */
+    /*
+      var self = this;
+      this.el.removeAttribute('sleepy');
+      setTimeout(() => {
+        self.el.setAttribute('sleepy');
+      }, 1000);
+    */
+  },
   resetGrabber: function () {
-    var objPos = new THREE.Vector3();
-    var grabPos = new THREE.Vector3();
-    return function () {
-      let raycaster;
-      if (!this.grabber) {
-        return false;
-      }
-      raycaster = this.grabber.getAttribute('raycaster');
-      this.deltaPositionIsValid = false;
-      this.grabDistance = this.el.object3D.getWorldPosition(objPos).distanceTo(this.grabber.object3D.getWorldPosition(grabPos));
-      if (raycaster) {
-        this.grabDirection = raycaster.direction;
-        this.grabOffset = raycaster.origin;
-      }
-      return true;
-    };
-  }(),
+    let raycaster;
+    if (!this.grabber) {
+      return false;
+    }
+    raycaster = this.grabber.getAttribute('raycaster');
+    this.deltaPositionIsValid = false;
+    this.grabDistance = this.el.object3D.getWorldPosition().distanceTo(this.grabber.object3D.getWorldPosition());
+    if (raycaster) {
+      this.grabDirection = raycaster.direction;
+      this.grabOffset = raycaster.origin;
+    }
+    return true;
+  },
   lostGrabber: function (evt) {
     let i = this.grabbers.indexOf(evt.relatedTarget);
     // if a queued, non-physics grabber leaves the collision zone, forget it
