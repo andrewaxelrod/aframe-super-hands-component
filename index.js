@@ -26,13 +26,13 @@ AFRAME.registerComponent('super-hands', {
       default: ['gripdown', 'trackpaddown', 'triggerdown', 'gripclose',
         'abuttondown', 'bbuttondown', 'xbuttondown', 'ybuttondown',
         'pointup', 'thumbup', 'pointingstart', 'pistolstart',
-        'thumbstickdown', 'mousedown', 'touchstart']
+        'thumbstickdown', 'mousedown']
     },
     grabEndButtons: {
       default: ['gripup', 'trackpadup', 'triggerup', 'gripopen',
         'abuttonup', 'bbuttonup', 'xbuttonup', 'ybuttonup',
         'pointdown', 'thumbdown', 'pointingend', 'pistolend',
-        'thumbstickup', 'mouseup', 'touchend']
+        'thumbstickup', 'mouseup']
     },
     stretchStartButtons: {
       default: ['gripdown', 'trackpaddown', 'triggerdown', 'gripclose',
@@ -134,11 +134,13 @@ AFRAME.registerComponent('super-hands', {
     this.onDragDropEndButton()
   },
   tick: (function () {
+    let orderChanged = false
     // closer objects and objects with no distance come later in list
     function sorter (a, b) {
       const aDist = a.distance == null ? -1 : a.distance
       const bDist = b.distance == null ? -1 : b.distance
       if (aDist < bDist) {
+        orderChanged = true
         return 1
       }
       if (bDist < aDist) {
@@ -152,15 +154,12 @@ AFRAME.registerComponent('super-hands', {
       if (prevCheckTime && (time - prevCheckTime < data.interval)) { return }
       this.prevCheckTime = time
 
-      let orderChanged = false
+      orderChanged = false
       this.hoverElsIntersections.sort(sorter)
-      for (let i = 0; i < this.hoverElsIntersections.length; i++) {
-        if (this.hoverEls[i] !== this.hoverElsIntersections[i].object.el) {
-          orderChanged = true
+      if (orderChanged) {
+        for (let i = 0; i < this.hoverElsIntersections.length; i++) {
           this.hoverEls[i] = this.hoverElsIntersections[i].object.el
         }
-      }
-      if (orderChanged) {
         this.hover()
       }
     }
@@ -531,7 +530,7 @@ AFRAME.registerComponent('super-hands', {
       this.hoverEls.splice(hoverIndex, 1)
       const sect = this.hoverElsIntersections.splice(hoverIndex, 1)
       this.hoverEls.push(el)
-      this.hoverElsIntersections.push(sect[0])
+      this.hoverElsIntersections.push(sect)
     }
   }
 })

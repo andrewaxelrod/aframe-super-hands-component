@@ -1,4 +1,3 @@
-/* global AFRAME, THREE */
 const inherit = AFRAME.utils.extendDeep
 const physicsCore = require('./prototypes/physics-grab-proto.js')
 const buttonsCore = require('./prototypes/buttons-proto.js')
@@ -25,11 +24,26 @@ AFRAME.registerComponent('grabbable', inherit(base, {
     this.destPosition = {x: 0, y: 0, z: 0}
     this.deltaPosition = new THREE.Vector3()
     this.targetPosition = new THREE.Vector3()
-    this.physicsInit()
+    this.physicsInit() 
+
+    this.extraDistance = 0;
+    this.touchX = 0;
+    this.touchY = 0;
 
     this.el.addEventListener(this.GRAB_EVENT, e => this.start(e))
     this.el.addEventListener(this.UNGRAB_EVENT, e => this.end(e))
     this.el.addEventListener('mouseout', e => this.lostGrabber(e))
+    
+    // 3.0.1 Mod
+    this.extraDistance = 0;
+    this.touchX = 0;
+    this.touchY = 0;
+
+    // 3.0.1 Mod
+    this.myControls = document.querySelector("#rhand");
+    this.scene = document.querySelector("#scene");
+    this.myControls.addEventListener('axismove', e => this.axisMove(e));
+    this.scene.addEventListener('globalGrabEnd', e => this.wakeUp(e));
   },
   update: function () {
     this.physicsUpdate()
@@ -37,44 +51,51 @@ AFRAME.registerComponent('grabbable', inherit(base, {
     this.zFactor = (this.data.invert) ? -1 : 1
     this.yFactor = ((this.data.invert) ? -1 : 1) * !this.data.suppressY
   },
-  tick: (function () {
-    var q = new THREE.Quaternion()
-    var v = new THREE.Vector3()
+  tick: function () {
+    var entityPosition
+    if (this.grabber) {
+      
+      // 3.0.1 Mod
+      if (this.touchY !== 0) {
+        this.extraDistance -= this.touchY;
+      }   
 
-    return function () {
-      var entityPosition
-      if (this.grabber) {
-        // reflect on z-axis to point in same direction as the laser
-        this.targetPosition.copy(this.grabDirection)
-        this.targetPosition
-            .applyQuaternion(this.grabber.object3D.getWorldQuaternion(q))
-            .setLength(this.grabDistance)
-            .add(this.grabber.object3D.getWorldPosition(v))
-            .add(this.grabOffset)
-        if (this.deltaPositionIsValid) {
-          // relative position changes work better with nested entities
-          this.deltaPosition.sub(this.targetPosition)
-          entityPosition = this.el.getAttribute('position')
-          this.destPosition.x =
-              entityPosition.x - this.deltaPosition.x * this.xFactor
-          this.destPosition.y =
-              entityPosition.y - this.deltaPosition.y * this.yFactor
-          this.destPosition.z =
-              entityPosition.z - this.deltaPosition.z * this.zFactor
-          this.el.setAttribute('position', this.destPosition)
-        } else {
-          this.deltaPositionIsValid = true
-        }
-        this.deltaPosition.copy(this.targetPosition)
+      // 3.0.1 Mod
+      if (this.touchX !== 0) {
+        this.el.object3D.rotation.y -= this.touchX;
+      } 
+
+      // reflect on z-axis to point in same direction as the laser
+      this.targetPosition.copy(this.grabDirection)
+      this.targetPosition
+          .applyQuaternion(this.grabber.object3D.getWorldQuaternion())
+          .setLength(this.grabDistance + this.extraDistance) // 3.0.1 Mod
+          .add(this.grabber.object3D.getWorldPosition())
+          .add(this.grabOffset)
+      if (this.deltaPositionIsValid) {
+        // relative position changes work better with nested entities
+        this.deltaPosition.sub(this.targetPosition)
+        entityPosition = this.el.getAttribute('position')
+        this.destPosition.x =
+            entityPosition.x - this.deltaPosition.x * this.xFactor
+        this.destPosition.y =
+            entityPosition.y - this.deltaPosition.y * this.yFactor
+        this.destPosition.z =
+            entityPosition.z - this.deltaPosition.z * this.zFactor
+        this.el.setAttribute('position', this.destPosition)
+      } else {
+        this.deltaPositionIsValid = true
       }
+      this.deltaPosition.copy(this.targetPosition)
     }
-  })(),
+  },
   remove: function () {
     this.el.removeEventListener(this.GRAB_EVENT, this.start)
     this.el.removeEventListener(this.UNGRAB_EVENT, this.end)
     this.physicsRemove()
   },
   start: function (evt) {
+    this.el.removeAttribute('dynamic-body');
     if (evt.defaultPrevented || !this.startButtonOk(evt)) {
       return
     }
@@ -100,6 +121,9 @@ AFRAME.registerComponent('grabbable', inherit(base, {
     }
   },
   end: function (evt) {
+    this.el.setAttribute('dynamic-body'); // 3.0.1 Mod
+    this.extraDistance = 0; // 3.0.1 Mod
+    this.scene.emit('globalGrabEnd', {}, false);
     const handIndex = this.grabbers.indexOf(evt.detail.hand)
     if (evt.defaultPrevented || !this.endButtonOk(evt)) { return }
     if (handIndex !== -1) {
@@ -113,24 +137,41 @@ AFRAME.registerComponent('grabbable', inherit(base, {
     }
     if (evt.preventDefault) { evt.preventDefault() }
   },
-  resetGrabber: (function () {
-    var objPos = new THREE.Vector3()
-    var grabPos = new THREE.Vector3()
-    return function () {
-      let raycaster
-      if (!this.grabber) {
-        return false
-      }
-      raycaster = this.grabber.getAttribute('raycaster')
-      this.deltaPositionIsValid = false
-      this.grabDistance = this.el.object3D.getWorldPosition(objPos).distanceTo(this.grabber.object3D.getWorldPosition(grabPos))
-      if (raycaster) {
-        this.grabDirection = raycaster.direction
-        this.grabOffset = raycaster.origin
-      }
-      return true
+  axisMove: function (evt) {  // 3.0.1 Mod
+    const x = evt.detail.axis[0];
+    const y = evt.detail.axis[1];  
+    this.touchX = (Math.abs(x) > 0.7 ? x : 0) * 0.05;
+    this.touchY = y * 0.05;
+  },
+  wakeUp: function (evt) {
+    /*
+      To Do: Figure out how to wake up entities for a second. This will fix the issue
+      of pulling entities below other entities.   
+      https://github.com/wmurphyrd/aframe-physics-extras#sleepy 
+    */
+    /*
+      var self = this;
+      this.el.removeAttribute('sleepy');
+      setTimeout(() => {
+        self.el.setAttribute('sleepy');
+      }, 1000);
+    */  
+  },
+  resetGrabber: function () {
+    let raycaster
+    if (!this.grabber) {
+      return false
     }
-  })(),
+    raycaster = this.grabber.getAttribute('raycaster')
+    this.deltaPositionIsValid = false
+    this.grabDistance = this.el.object3D.getWorldPosition()
+        .distanceTo(this.grabber.object3D.getWorldPosition())
+    if (raycaster) {
+      this.grabDirection = raycaster.direction
+      this.grabOffset = raycaster.origin
+    }
+    return true
+  },
   lostGrabber: function (evt) {
     let i = this.grabbers.indexOf(evt.relatedTarget)
     // if a queued, non-physics grabber leaves the collision zone, forget it
